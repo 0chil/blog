@@ -1,4 +1,5 @@
-function initilaizeGiscus(giscusOptions) {
+// document.addEventListener('onNagivateCompleted', initializeGiscus); // Giscus를 사용하려면 주석을 제거하세요
+function initializeGiscus() {
     var giscusDiv = document.createElement("div");
     giscusDiv.className = "giscus";
     if (!document.querySelector(".giscus")) {
@@ -7,10 +8,10 @@ function initilaizeGiscus(giscusOptions) {
 
     var script = document.createElement("script");
     script.src = "https://giscus.app/client.js";
-    script.setAttribute("data-repo", giscusOptions.GISCUS_REPO);
-    script.setAttribute("data-repo-id", giscusOptions.GISCUS_REPO_ID);
-    script.setAttribute("data-category", giscusOptions.GISCUS_CATEGORY);
-    script.setAttribute("data-category-id", giscusOptions.GISCUS_CATEGORY_ID);
+    script.setAttribute("data-repo", ""); // 여기서부터 Giscus 정보를 입력하세요
+    script.setAttribute("data-repo-id", "");
+    script.setAttribute("data-category", "");
+    script.setAttribute("data-category-id", "");
     script.setAttribute("data-mapping", "pathname");
     script.setAttribute("data-strict", "0");
     script.setAttribute("data-reactions-enabled", "1");
