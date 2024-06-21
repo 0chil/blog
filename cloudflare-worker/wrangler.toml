@@ -2,6 +2,9 @@ name = "${PROJECT_NAME}"
 main = "worker.js"
 compatibility_date = "2023-08-23"
 
+[site]
+bucket = "./static"
+
 [vars]
 TARGET_DOMAIN = "${TARGET_DOMAIN}"
 SERVE_DOMAIN = "${SERVE_DOMAIN}"

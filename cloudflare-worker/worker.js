@@ -1,74 +1,86 @@
-const CUSTOM_CSS = `
-.notion-header__cover.no-cover {
-    max-height: 40px;
-}
-.notion-header__cover.no-cover:has(+ .notion-header__icon-wrapper.no-cover.has-icon-image) {
-    max-height: 20px;
-}
-.notion-header__content.no-cover .notion-header__title-wrapper {
-    margin-top: 84px;
-}
-.notion-header__icon-wrapper.no-cover.has-icon-image {
-    top: -144px;
-}
-.notion-header__icon-wrapper.no-cover.has-icon {
-    top: -94px;
-}
-.notion-root.has-footer {
-    padding-bottom: 3vh;
-}
-.notion-breadcrumb, .notion-breadcrumb > :first-child {
-    min-width: 0;
-}
-.notion-pill {
-    font-size: .875rem;
-}
-.giscus {
-	  border-top: var(--divider-border);
-    padding-top: 3vh;
-    margin-top: 3vh;
-}
-.super-footer {
-    padding-top: 3vh;
-    padding-bottom: 3vh;
-}
-a.super-footer__logo:has(span:empty) {
-    display: none;
-}
-.super-footer__icons {
-    margin-bottom: 8px;
-}
-.super-badge {
-    display:none;
-}
-.notion-collection-list {
-    border-top: none;
-    padding-top: 0px;
-}
-.notion-collection-group__section.open:not(.board) {
-    margin-bottom: 0;
-}
-.notion-collection-group__section-header:not(.no-border) {
-    border-top: 0;
-    padding-top: 0px;
-    padding-bottom: 8px;
-}
-.notion-toggle:has(h3 > del) {
-    display: none;
-}
-`;
+import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+import manifestJSON from '__STATIC_CONTENT_MANIFEST';
+const assetManifest = JSON.parse(manifestJSON);
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
-    switch (url.pathname) {
-      case '/custom.css': return new Response(CUSTOM_CSS, { headers: { 'Content-Type': 'text/css' } });
-      case '/custom.js': return this.handleCustomJs(env);
-      case '/robots.txt': return this.handleRobots(env);
-      case '/sitemap.xml': return this.handleSitemaps(request, env);
-      default: return this.handleProxyRequest(request, env);
+    try {
+      switch (url.pathname) {
+        case '/favicon.ico':
+        case '/customized.common.css':
+        case '/customized.per-site.css':
+        case '/customized.per-site.js':
+        case '/giscus.js':
+        case '/onNavigateCompleted.js':
+          return await getAssetFromKV(
+            {
+              request,
+              waitUntil: ctx.waitUntil.bind(ctx),
+            },
+            {
+              ASSET_NAMESPACE: env.__STATIC_CONTENT,
+              ASSET_MANIFEST: assetManifest,
+            }
+          );
+        case '/robots.txt': return this.handleRobots(env);
+        case '/sitemap.xml': return this.proxySitemaps(request, env);
+        default: return this.proxyRequests(request, env);
+      }
+    } catch (e) {
+      let pathname = new URL(request.url).pathname;
+      return new Response(`"${pathname}" not found`, {
+        status: 404,
+        statusText: 'not found',
+      });
     }
+  },
+
+  async proxyRequests(request, env) {
+    const proxyUrl = new URL(request.url);
+    proxyUrl.hostname = env.TARGET_DOMAIN;
+
+    const response = await fetch(proxyUrl.toString(), {
+      headers: request.headers,
+      method: request.method,
+      body: request.body,
+    });
+
+    if (response.headers.get('content-type')?.includes('text/html')) {
+      const text = await response.text();
+      return new Response(text.replace('</head>', '<link rel="stylesheet" href="/customized.common.css"><link rel="stylesheet" href="/customized.per-site.css"></head>')
+        .replace('</body>', `<script>
+            function onInitialize() {
+              initilaizeGiscus({
+                GISCUS_REPO: "${env.GISCUS_REPO}",
+                GISCUS_REPO_ID: "${env.GISCUS_REPO_ID}",
+                GISCUS_CATEGORY: "${env.GISCUS_CATEGORY}",
+                GISCUS_CATEGORY_ID: "${env.GISCUS_CATEGORY_ID}"
+              });
+            }
+          </script>` +
+          '<script type="text/javascript" src="/giscus.js"></script>' +
+          '<script type="text/javascript" src="/onNavigateCompleted.js"></script>' +
+          '<script type="text/javascript" src="/customized.per-site.js"></script></body>')
+        .replace(new RegExp('<meta name="robots" content="noindex, nofollow"*/>'), ''),
+        response
+      );
+    }
+    return response;
+  },
+
+  async proxySitemaps(request, env) {
+    const proxyUrl = new URL(request.url);
+    proxyUrl.hostname = env.TARGET_DOMAIN;
+
+    let response = await fetch(proxyUrl.toString(), {
+      headers: request.headers,
+      method: request.method,
+      body: request.body,
+    });
+
+    const text = await response.text();
+    return new Response(text.replaceAll(env.TARGET_DOMAIN, env.SERVE_DOMAIN), response);
   },
 
   async handleRobots(env) {
@@ -77,93 +89,8 @@ Disallow:
 Disallow: /api
 Disallow: /_next
 Allow: /_next/static/css
-Sitemap: https://${env.SERVE_DOMAIN}/sitemap.xml`, { headers: { 'Content-Type': 'text/plain' } });
+Sitemap: https://${env.SERVE_DOMAIN}/sitemap.xml`,
+      { headers: { 'Content-Type': 'text/plain' } }
+    );
   },
-
-  async handleSitemaps(request, env) {
-    const proxyUrl = new URL(request.url);
-    proxyUrl.hostname = env.TARGET_DOMAIN;
-
-    let response = await fetch(proxyUrl.toString(), {
-      headers: request.headers,
-      method: request.method,
-      body: request.body,
-    });
-
-    let text = await response.text();
-    text = text.replaceAll(env.TARGET_DOMAIN, env.SERVE_DOMAIN);
-    return new Response(text, response);
-  },
-
-  async handleCustomJs(env) {
-    return new Response(`
-    function onNagivateCompleted() {
-      var giscusDiv = document.createElement("div");
-      giscusDiv.className = "giscus";
-      if (!document.querySelector(".giscus")) {
-          document.querySelector("article").appendChild(giscusDiv);
-      }
-    
-      var script = document.createElement("script");
-      script.src = "https://giscus.app/client.js";
-      script.setAttribute("data-repo", "${env.GISCUS_REPO}");
-      script.setAttribute("data-repo-id", "${env.GISCUS_REPO_ID}");
-      script.setAttribute("data-category", "${env.GISCUS_CATEGORY}");
-      script.setAttribute("data-category-id", "${env.GISCUS_CATEGORY_ID}");
-      script.setAttribute("data-mapping", "pathname");
-      script.setAttribute("data-strict", "0");
-      script.setAttribute("data-reactions-enabled", "1");
-      script.setAttribute("data-emit-metadata", "0");
-      script.setAttribute("data-input-position", "bottom");
-      script.setAttribute("data-theme", "light");
-      script.setAttribute("data-lang", "ko");
-      script.setAttribute("crossorigin", "anonymous");
-      script.async = true;
-      document.head.appendChild(script);
-    
-      const links = document.querySelectorAll("a.notion-link");
-      links.forEach(link => {
-        const href = link.getAttribute("href");
-        if (href && href.startsWith("/")) {
-          window.next.router.prefetch(href);
-        }
-      });
-    }
-
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-    history.pushState = function(state) {
-      const result = originalPushState.apply(history, arguments);
-      setTimeout(onNagivateCompleted, 500);
-      return result;
-    };
-    history.replaceState = function(state) {
-      const result = originalReplaceState.apply(history, arguments);
-      setTimeout(onNagivateCompleted, 500);
-      return result;
-    };
-    
-    document.addEventListener("DOMContentLoaded", ()=>setTimeout(onNagivateCompleted, 500));
-    `, { headers: { 'Content-Type': 'text/javascript' } });
-  },
-
-  async handleProxyRequest(request, env) {
-    const proxyUrl = new URL(request.url);
-    proxyUrl.hostname = env.TARGET_DOMAIN;
-
-    let response = await fetch(proxyUrl.toString(), {
-      headers: request.headers,
-      method: request.method,
-      body: request.body,
-    });
-
-    if (response.headers.get('content-type')?.includes('text/html')) {
-      let text = await response.text();
-      text = text.replace('</head>', `<link rel="stylesheet" href="/custom.css"></head>`)
-        .replace('<meta name="robots" content="noindex, nofollow" />', '')
-        .replace('</body>', '<script type="text/javascript" src="/custom.js"></script></body>');
-      return new Response(text, response);
-    }
-    return response;
-  }
 };
